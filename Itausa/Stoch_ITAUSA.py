@@ -21,16 +21,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import itertools
 import warnings
 
 
 import statsmodels.tsa.stattools as tsa
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.statespace import sarimax
-from statsmodels.tsa.arima_model import ARIMA
 from sklearn.metrics import mean_squared_error
 
 from statsmodels.tsa.seasonal import seasonal_decompose
+
+STEPS = 7
+TARGET = 'Último'
+EXOG = ['Covid','CriticalCovid']
+
 
 sns.set_style('darkgrid')
 
@@ -96,7 +101,7 @@ def create_features(df):
 
 def get_critical_covid(df):
     df['CriticalCovid'] = 0
-    df.loc[1430:1640,'CriticalCovid'] = -1
+    df.loc[1430:1640,'CriticalCovid'] = 1
     return df
 
 
@@ -148,6 +153,54 @@ def get_trend_plots(df):
     plt.show()
 
 
+#funcao para achar os parametros otimos do sarimax - força bruta
+def opt_parameters(ts,ts_test,pdq, pdqs):
+    ts_exog = ts[EXOG]
+    ts_test_exog = ts_test[EXOG]
+    
+    ts = ts[TARGET] 
+    ts_test = ts_test[TARGET]
+    
+    
+    best_param = []
+    for param in pdq:
+        for params in pdqs:
+            try:
+                mod = sarimax.SARIMAX(ts,
+                                      order=param,
+                                      seasonal_order=params
+                                      ) #exog = ts_exog
+    
+                model_fit = mod.fit(disp=False)
+                
+                pred_y = model_fit.get_forecast(steps=STEPS)#,exog = ts_test_exog
+                                
+                rmse = np.sqrt(mean_squared_error(ts_test,pred_y.predicted_mean))
+                
+                
+                best_param.append([param, params, model_fit.bic,model_fit.aic, rmse])
+                print('SARIMAX {} x {}12 : BIC Calculated ={}'.format(param, params, model_fit.bic))
+            except:
+                continue
+    
+    best_param_df = pd.DataFrame(best_param, columns=['pdq', 'pdqs', 'bic','aic','rmse'])
+    best_param_df = best_param_df.sort_values(by=['rmse'],ascending=True)[0:5]
+    
+    return best_param_df
+
+
+
+def auto_sarimax(n, m, ts,ts_test):
+    
+    p = d = q = range(n, m)
+    pdq = list(itertools.product(p, d, q))
+    pdqs = [(x[0], x[1], x[2], 12) for x in list(itertools.product(p, d, q))]
+    
+    opt_param = opt_parameters(ts,ts_test, pdq, pdqs)
+    
+    return opt_param
+
+
 def get_decompose_analysis(df, period):
     result = seasonal_decompose(itausa['Último'].values,model='additive',period=period)
     result.plot()
@@ -182,10 +235,12 @@ get_order_diff(itausa,nLags)
 get_decompose_analysis(itausa, 30)
 
 # In[9]:
-df_itausa_train = itausa[635:1630]
-df_itausa_test = itausa[1630:]
+df_itausa_train = itausa[1600:1730]
+df_itausa_test = itausa[1730:1737]
 
-
+# In[9]:
+    
+model_params = auto_sarimax(0, 4, df_itausa_train,df_itausa_test)
 
 # In[9]:
 df_itausa_train['Último'].plot()
@@ -193,111 +248,20 @@ df_itausa_test['Último'].plot()
 
 
 # In[9]:
-'''
-def get_best_model(df_train, df_test, params):
-    
-    p_values = range(0,3)
-    d_values = range(0,2)
-    q_values = range(0,3)
-    ps_values = range(0,1)
-    ds_values = range(0,1)
-    qs_values = range(0,1)
-    
-    lowest_RMSE = 999999
-    
-    for p in p_values:
-        for d in d_values:
-            for q in q_values:
-                for ps in ps_values:
-                    for ds in ds_values:
-                        for qs in qs_values:
-                            iorder = (p,d,q)
-                            iseasonal_order = (ps,ds,qs,1)
-                            train,test = df_itausa_train['Último'], df_itausa_test['Último']
-                            try:
-                                model = sarimax.SARIMAX(train,order=iorder,seasonal_order=iseasonal_order,exog=df_itausa_train[params])
-                                model_fit = model.fit(disp=False)
-                                pred_y = model_fit.get_forecast(steps=194,exog=df_itausa_test[params]) 
-        
-                                RMSE = np.sqrt(mean_squared_error(test,pred_y.predicted_mean))
-                                print('SARIMAX Order%s Seasonal_Order%s RMSE = %.2f'% (iorder,iseasonal_order,RMSE))
-                                if(RMSE<lowest_RMSE):
-                                    lowest_RMSE = RMSE
-                                    best_order = iorder
-                                    best_seasonal_order = iseasonal_order
-                        except:
-                            continue
-    
-    
-    return model, model_fit,best_order, best_seasonal_order,lowest_RMSE
-'''
-        
-# In[10]:
-
-#get_best_model(df_train, df_test, params)  
-
-    
-# In[10]:
-#params = ['Vol.','Covid','CriticalCovid']
-params = ['Covid','CriticalCovid']
-#params = ['Covid']
-
-p_values = range(0,4)
-d_values = range(0,3)
-q_values = range(0,4)
-ps_values = range(0,2)
-ds_values = range(0,1)
-qs_values = range(0,2)
-lowest_RMSE = 999999
-
-for p in p_values:
-    for d in d_values:
-        for q in q_values:
-            for ps in ps_values:
-                for ds in ds_values:
-                    for qs in qs_values:
-                        iorder = (p,d,q)
-                        iseasonal_order = (ps,ds,qs,12)
-                        train,test = df_itausa_train['Último'], df_itausa_test['Último']
-                        try:
-                            model = sarimax.SARIMAX(train,order=iorder,seasonal_order=iseasonal_order,exog=df_itausa_train[params])#,exog=df_itausa_train[params]
-                            model_fit = model.fit(disp=False)
-                            pred_y = model_fit.get_forecast(steps=90,exog=df_itausa_test[params][0:90]) #,exog=df_itausa_test[params]
-    
-                            RMSE = np.sqrt(mean_squared_error(test[0:90],pred_y.predicted_mean))
-                            print('SARIMAX Order%s Seasonal_Order%s RMSE = %.2f'% (iorder,iseasonal_order,RMSE))
-                            if(RMSE<lowest_RMSE):
-                                lowest_RMSE = RMSE
-                                best_order = iorder
-                                best_seasonal_order = iseasonal_order
-                        except:
-                            continue
-    
-# In[11]: Predição valores historicos - Treinamento
-
-model = sarimax.SARIMAX(train,order=best_order,seasonal_order=best_seasonal_order,exog=df_itausa_train[params])
-model_fit = model.fit(disp=False)
-
-pred_y = model_fit.get_prediction(steps=995)
-itausa_pred = pred_y.predicted_mean
-itausa_conf = pred_y.conf_int()
-
-res_acc = forecast_accuracy(itausa_pred, train)
-print("Train",res_acc)
 
     
 # In[11]: Predição valores historicos - Teste
 
-model = sarimax.SARIMAX(train,order=best_order,seasonal_order=best_seasonal_order,exog=df_itausa_train[params])
+model = sarimax.SARIMAX(df_itausa_train['Último'],order=(1,1,2),seasonal_order=(2,0,1,12),exog=df_itausa_train[EXOG])
 model_fit = model.fit(disp=False)
 
-pred_y = model_fit.get_forecast(steps=5,exog=df_itausa_test[params][0:5])
+pred_y = model_fit.get_forecast(steps=7,exog=df_itausa_test[EXOG][0:20])
 
 itausa_pred = pred_y.predicted_mean
 itausa_conf = pred_y.conf_int()
 
-res_acc = forecast_accuracy(itausa_pred, test[0:5])
-print("Test",res_acc)
+res_acc = forecast_accuracy(itausa_pred, df_itausa_test[0:20])
+#print("Test",res_acc)
 
 
 # In[11]: Forecasting 3 dias

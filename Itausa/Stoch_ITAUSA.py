@@ -32,7 +32,7 @@ from sklearn.metrics import mean_squared_error
 
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-STEPS = 7
+STEPS = 10
 TARGET = 'Último'
 EXOG = ['Covid','CriticalCovid']
 
@@ -173,7 +173,7 @@ def opt_parameters(ts,ts_test,pdq, pdqs):
     
                 model_fit = mod.fit(disp=False)
                 
-                pred_y = model_fit.get_forecast(steps=STEPS)#,exog = ts_test_exog
+                pred_y = model_fit.get_forecast(steps=STEPS)#,
                                 
                 rmse = np.sqrt(mean_squared_error(ts_test,pred_y.predicted_mean))
                 
@@ -192,7 +192,8 @@ def opt_parameters(ts,ts_test,pdq, pdqs):
 
 def auto_sarimax(n, m, ts,ts_test):
     
-    p = d = q = range(n, m)
+    p = q = range(n, m)
+    d = range(0,2)
     pdq = list(itertools.product(p, d, q))
     pdqs = [(x[0], x[1], x[2], 12) for x in list(itertools.product(p, d, q))]
     
@@ -208,7 +209,7 @@ def get_decompose_analysis(df, period):
 
 # In[3]: Leitura dos dados
 
-itausa_raw = pd.read_csv('dataset_itsa4.csv',';')
+itausa_raw = pd.read_csv('dataset_itsa4.csv',',')
 
 
 # In[4]: Criação de novas Features
@@ -235,12 +236,12 @@ get_order_diff(itausa,nLags)
 get_decompose_analysis(itausa, 30)
 
 # In[9]:
-df_itausa_train = itausa[1600:1730]
-df_itausa_test = itausa[1730:1737]
+df_itausa_train = itausa[900:1530]
+df_itausa_test = itausa[1530:1540]
 
 # In[9]:
     
-model_params = auto_sarimax(0, 4, df_itausa_train,df_itausa_test)
+model_params = auto_sarimax(0, 3, df_itausa_train,df_itausa_test)
 
 # In[9]:
 df_itausa_train['Último'].plot()
@@ -252,28 +253,26 @@ df_itausa_test['Último'].plot()
     
 # In[11]: Predição valores historicos - Teste
 
-model = sarimax.SARIMAX(df_itausa_train['Último'],order=(1,1,2),seasonal_order=(2,0,1,12),exog=df_itausa_train[EXOG])
+model = sarimax.SARIMAX(df_itausa_train['Último'],
+                        order=(2,1,2),
+                        seasonal_order=(2,0,1,12),
+                        exog=df_itausa_train[EXOG]) #exog=df_itausa_train[EXOG]
 model_fit = model.fit(disp=False)
 
-pred_y = model_fit.get_forecast(steps=7,exog=df_itausa_test[EXOG][0:20])
+pred_y = model_fit.get_forecast(steps=STEPS,
+                                exog=df_itausa_test[EXOG]) #,exog=df_itausa_test[EXOG]
 
 itausa_pred = pred_y.predicted_mean
 itausa_conf = pred_y.conf_int()
 
-res_acc = forecast_accuracy(itausa_pred, df_itausa_test[0:20])
-#print("Test",res_acc)
+res_acc = forecast_accuracy(df_itausa_test['Último'],itausa_pred)
 
 
-# In[11]: Forecasting 3 dias
-'''
-df_itausa_train = itausa[1000:]
-train,test = df_itausa_train['Último'], df_itausa_test['Último']
- 
-model = sarimax.SARIMAX(train,order=best_order,seasonal_order=best_seasonal_order,exog=df_itausa_train[params])
-model_fit = model.fit(disp=False)
+# In[11]: Pred
 
-pred_y = model_fit.get_forecast(steps=3)
-itausa_frc = pred_y.predicted_mean
-itausa_frc_conf = pred_y.conf_int()    
-'''    
+train_pred_y = model_fit.get_prediction()
+train_itausa_pred = train_pred_y.predicted_mean
+train_itausa_conf = train_pred_y.conf_int()    
+   
 
+train_res_acc = forecast_accuracy(df_itausa_train['Último'],train_itausa_pred)
